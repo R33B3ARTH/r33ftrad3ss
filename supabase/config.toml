@@ -1,0 +1,2 @@
+[functions.futures-prices]
+verify_jwt = false
