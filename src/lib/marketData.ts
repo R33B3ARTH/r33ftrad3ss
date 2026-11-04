@@ -29,7 +29,7 @@ const MANUAL_KEY_MAP: Record<AssetSymbol, keyof ManualPrices> = {
   NQ: 'nq_manual_price',
 };
 
-const POLL_INTERVAL = 1000;
+const POLL_INTERVAL = 1500;
 const CANDLE_INTERVAL = 1000;
 
 export type Timeframe = '1m' | '3m' | '5m' | '10m' | '15m' | '30m' | '1h' | '4h' | '1D';
@@ -221,77 +221,95 @@ class MarketDataEngine {
 
   private async fetchLivePrices() {
     if (this.fetchInProgress) return;
-    if (Date.now() - this.lastFetchTime < 800) return;
+    if (Date.now() - this.lastFetchTime < 1000) return;
 
     this.fetchInProgress = true;
     this.lastFetchTime = Date.now();
 
-    try {
-      const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/futures-prices`;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      if (anonKey) {
-        headers['Authorization'] = `Bearer ${anonKey}`;
-        headers['apikey'] = anonKey;
-      }
+    const symbols = Object.keys(ASSET_CONFIGS) as AssetSymbol[];
 
-      const resp = await fetch(apiUrl, { headers });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    for (const symbol of symbols) {
+      const yahooTicker = YAHOO_SYMBOLS[symbol] || (symbol === 'ES' ? 'ES=F' : 'NQ=F');
+      const targetUrl = encodeURIComponent(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1m&range=2d`
+      );
+      const url = `https://corsproxy.io/?${targetUrl}`;
 
-      const json = await resp.json();
-      if (!json.success || !json.data) throw new Error('No success in response');
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
 
-      (Object.keys(ASSET_CONFIGS) as AssetSymbol[]).forEach((symbol) => {
-        const entry = json.data[symbol];
-        if (entry && !entry.error && typeof entry.price === 'number') {
-          const apiCandles: CandleData[] = (entry.candles || []).map((c: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
-            time: c.timestamp,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume,
-          }));
+        const json = await resp.json();
+        const result = json?.chart?.result?.[0];
+        if (!result) continue;
 
-          this.liveQuotes.set(symbol, {
-            price: entry.price,
-            prevClose: entry.prevClose,
-            open: entry.open,
-            dayHigh: entry.dayHigh,
-            dayLow: entry.dayLow,
-            volume: entry.volume,
-            change: entry.change,
-            changePercent: entry.changePercent,
-            prevDayHigh: entry.prevDayHigh ?? entry.dayHigh,
-            prevDayLow: entry.prevDayLow ?? entry.dayLow,
-            candles: apiCandles,
-          });
+        const meta = result.meta;
+        const timestamps: number[] = result.timestamp || [];
+        const quote = result.indicators?.quote?.[0] || {};
+        const opens = quote.open || [];
+        const highs = quote.high || [];
+        const lows = quote.low || [];
+        const closes = quote.close || [];
+        const volumes = quote.volume || [];
 
-          if (apiCandles.length > 0) {
-            this.apiCandles.set(symbol, apiCandles);
+        const candles: CandleData[] = [];
+        for (let i = 0; i < timestamps.length; i++) {
+          if (closes[i] !== null && closes[i] !== undefined) {
+            candles.push({
+              time: timestamps[i] * 1000,
+              open: opens[i] ?? closes[i],
+              high: highs[i] ?? closes[i],
+              low: lows[i] ?? closes[i],
+              close: closes[i],
+              volume: volumes[i] ?? 0,
+            });
           }
         }
-      });
 
-      if (!this.useManual && this.liveQuotes.size > 0) {
-        if (this.currentSource !== 'live') {
-          this.currentSource = 'live';
-          this.notifySourceListeners('live');
+        const price = meta.regularMarketPrice ?? (candles.length > 0 ? candles[candles.length - 1].close : 0);
+        const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+        const dayHigh = meta.dayHigh ?? (candles.length > 0 ? Math.max(...candles.map(c => c.high)) : price);
+        const dayLow = meta.dayLow ?? (candles.length > 0 ? Math.min(...candles.map(c => c.low)) : price);
+        const volume = meta.regularMarketVolume ?? 0;
+        const change = price - prevClose;
+        const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+
+        this.liveQuotes.set(symbol, {
+          price,
+          prevClose,
+          open: meta.regularMarketDayLow ?? price,
+          dayHigh,
+          dayLow,
+          volume,
+          change,
+          changePercent,
+          prevDayHigh: dayHigh,
+          prevDayLow: dayLow,
+          candles,
+        });
+
+        if (candles.length > 0) {
+          this.apiCandles.set(symbol, candles);
         }
-        this.updatePricesFromLive();
+      } catch {
+        // Silent catch to let loop continue for next asset
       }
-    } catch {
-      if (!this.useManual && this.liveQuotes.size === 0) {
-        if (this.currentSource !== 'sim') {
-          this.currentSource = 'sim';
-          this.notifySourceListeners('sim');
-        }
-      }
-    } finally {
-      this.fetchInProgress = false;
     }
+
+    if (!this.useManual && this.liveQuotes.size > 0) {
+      if (this.currentSource !== 'live') {
+        this.currentSource = 'live';
+        this.notifySourceListeners('live');
+      }
+      this.updatePricesFromLive();
+    } else if (!this.useManual && this.liveQuotes.size === 0) {
+      if (this.currentSource !== 'sim') {
+        this.currentSource = 'sim';
+        this.notifySourceListeners('sim');
+      }
+    }
+
+    this.fetchInProgress = false;
   }
 
   private updatePricesFromLive() {
@@ -320,7 +338,6 @@ class MarketDataEngine {
       this.notifyPriceListeners(symbol, newPrice);
     });
 
-    // Notify candle listeners with updated API data
     (Object.keys(ASSET_CONFIGS) as AssetSymbol[]).forEach((symbol) => {
       const apiCandles = this.apiCandles.get(symbol);
       if (apiCandles && apiCandles.length > 0) {
@@ -362,9 +379,7 @@ class MarketDataEngine {
     this.apiCandles.clear();
     this.liveQuotes.clear();
     this.lastFetchTime = 0;
-    (Object.keys(ASSET_CONFIGS) as AssetSymbol[]).forEach((symbol) => {
-      this.fetchLivePrices();
-    });
+    this.fetchLivePrices();
   }
 
   stop(symbol: AssetSymbol) {
@@ -386,7 +401,6 @@ class MarketDataEngine {
 
   private tickCandle(symbol: AssetSymbol) {
     if (this.useManual || this.currentSource === 'sim') {
-      // Only tick sim candles when not live
       const candles = this.candleHistory.get(symbol);
       if (!candles || candles.length === 0) return;
 
