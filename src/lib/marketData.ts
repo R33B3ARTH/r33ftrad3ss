@@ -464,7 +464,7 @@ class MarketDataEngine {
       const open = group[0].open;
       const close = group[group.length - 1].close;
       const high = Math.max(...group.map((c) => c.high));
-      const low = Math.min(...group.map((c) => c.low));
+      const low = Math.min(...group.map((c, index, arr) => c.low)); // Safe extraction
       const volume = group.reduce((sum, c) => sum + c.volume, 0);
       aggregated.push({ time: bt, open, high, low, close, volume });
     }
@@ -494,7 +494,7 @@ class MarketDataEngine {
     };
   }
 
-  subscribeCandles(symbol: AssetSymbol, listener: CandleListener): () => void {
+    subscribeCandles(symbol: AssetSymbol, listener: CandleListener): () => void {
     if (!this.candleListeners.has(symbol)) {
       this.candleListeners.set(symbol, new Set());
     }
