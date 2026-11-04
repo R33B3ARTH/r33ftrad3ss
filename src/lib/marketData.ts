@@ -29,7 +29,7 @@ const MANUAL_KEY_MAP: Record<AssetSymbol, keyof ManualPrices> = {
   NQ: 'nq_manual_price',
 };
 
-const POLL_INTERVAL = 1500;
+const POLL_INTERVAL = 2000;
 const CANDLE_INTERVAL = 1000;
 
 export type Timeframe = '1m' | '3m' | '5m' | '10m' | '15m' | '30m' | '1h' | '4h' | '1D';
@@ -221,7 +221,7 @@ class MarketDataEngine {
 
   private async fetchLivePrices() {
     if (this.fetchInProgress) return;
-    if (Date.now() - this.lastFetchTime < 1000) return;
+    if (Date.now() - this.lastFetchTime < 1500) return;
 
     this.fetchInProgress = true;
     this.lastFetchTime = Date.now();
@@ -230,16 +230,18 @@ class MarketDataEngine {
 
     for (const symbol of symbols) {
       const yahooTicker = YAHOO_SYMBOLS[symbol] || (symbol === 'ES' ? 'ES=F' : 'NQ=F');
-      const targetUrl = encodeURIComponent(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1m&range=2d`
-      );
-      const url = `https://corsproxy.io/?${targetUrl}`;
+      // Using AllOrigins free public JSON proxy which supports GitHub Pages user agents cleanly
+      const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1m&range=2d`;
+      const url = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
 
       try {
         const resp = await fetch(url);
         if (!resp.ok) continue;
 
-        const json = await resp.json();
+        const wrapper = await resp.json();
+        if (!wrapper?.contents) continue;
+
+        const json = JSON.parse(wrapper.contents);
         const result = json?.chart?.result?.[0];
         if (!result) continue;
 
@@ -274,25 +276,27 @@ class MarketDataEngine {
         const change = price - prevClose;
         const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
-        this.liveQuotes.set(symbol, {
-          price,
-          prevClose,
-          open: meta.regularMarketDayLow ?? price,
-          dayHigh,
-          dayLow,
-          volume,
-          change,
-          changePercent,
-          prevDayHigh: dayHigh,
-          prevDayLow: dayLow,
-          candles,
-        });
+        if (price > 0) {
+          this.liveQuotes.set(symbol, {
+            price,
+            prevClose,
+            open: meta.regularMarketDayLow ?? price,
+            dayHigh,
+            dayLow,
+            volume,
+            change,
+            changePercent,
+            prevDayHigh: dayHigh,
+            prevDayLow: dayLow,
+            candles,
+          });
 
-        if (candles.length > 0) {
-          this.apiCandles.set(symbol, candles);
+          if (candles.length > 0) {
+            this.apiCandles.set(symbol, candles);
+          }
         }
       } catch {
-        // Silent catch to let loop continue for next asset
+        // Silent catch to continue loop
       }
     }
 
@@ -464,7 +468,7 @@ class MarketDataEngine {
       const open = group[0].open;
       const close = group[group.length - 1].close;
       const high = Math.max(...group.map((c) => c.high));
-      const low = Math.min(...group.map((c, index, arr) => c.low)); // Safe extraction
+      const low = Math.min(...group.map((c) => c.low));
       const volume = group.reduce((sum, c) => sum + c.volume, 0);
       aggregated.push({ time: bt, open, high, low, close, volume });
     }
@@ -494,7 +498,7 @@ class MarketDataEngine {
     };
   }
 
-    subscribeCandles(symbol: AssetSymbol, listener: CandleListener): () => void {
+  subscribeCandles(symbol: AssetSymbol, listener: CandleListener): () => void {
     if (!this.candleListeners.has(symbol)) {
       this.candleListeners.set(symbol, new Set());
     }
