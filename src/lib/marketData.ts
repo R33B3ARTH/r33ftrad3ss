@@ -230,18 +230,15 @@ class MarketDataEngine {
 
     for (const symbol of symbols) {
       const yahooTicker = YAHOO_SYMBOLS[symbol] || (symbol === 'ES' ? 'ES=F' : 'NQ=F');
-      // Using AllOrigins free public JSON proxy which supports GitHub Pages user agents cleanly
-      const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1m&range=2d`;
-      const url = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+      
+      // Pointing directly to your custom Cloudflare Worker proxy
+      const url = `https://r33ftrad3s.nizhar-reefer.workers.dev/?symbol=${yahooTicker}`;
 
       try {
         const resp = await fetch(url);
         if (!resp.ok) continue;
 
-        const wrapper = await resp.json();
-        if (!wrapper?.contents) continue;
-
-        const json = JSON.parse(wrapper.contents);
+        const json = await resp.json();
         const result = json?.chart?.result?.[0];
         if (!result) continue;
 
