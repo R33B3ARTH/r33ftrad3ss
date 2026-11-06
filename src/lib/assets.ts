@@ -25,17 +25,30 @@ export const ASSET_CONFIGS: Record<AssetSymbol, AssetConfig> = {
     pointStop: 50,
     precision: 2,
   },
+  SPX: {
+    symbol: 'SPX',
+    name: 'SPX',
+    fullName: 'S&P 500 Index (Cash)',
+    basePrice: 5850.0,
+    tickSize: 0.01,
+    tickValue: 1.00,
+    dailyAtr: 65.0,
+    pointTarget: 20,
+    pointStop: 10,
+    precision: 2,
+  },
 };
 
-export const ASSET_LIST: AssetSymbol[] = ['ES', 'NQ'];
+export const ASSET_LIST: AssetSymbol[] = ['ES', 'NQ', 'SPX'];
 
 export const YAHOO_SYMBOLS: Record<AssetSymbol, string> = {
   ES: 'ES=F',
   NQ: 'NQ=F',
+  SPX: '^GSPC',
 };
 
 export function formatPrice(price: number, symbol: AssetSymbol): string {
-  const config = ASSET_CONFIGS[symbol];
+  const config = ASSET_CONFIGS[symbol] || ASSET_CONFIGS['ES'];
   return price.toLocaleString('en-US', {
     minimumFractionDigits: config.precision,
     maximumFractionDigits: config.precision,
@@ -43,7 +56,7 @@ export function formatPrice(price: number, symbol: AssetSymbol): string {
 }
 
 export function getAssetConfig(symbol: AssetSymbol): AssetConfig {
-  return ASSET_CONFIGS[symbol];
+  return ASSET_CONFIGS[symbol] || ASSET_CONFIGS['ES'];
 }
 
 export const SNIPER_PROFILES: Record<SniperProfileId, SniperProfile> = {
@@ -88,6 +101,7 @@ export const SNIPER_PROFILES: Record<SniperProfileId, SniperProfile> = {
 export const MAE_GUARDRAILS: Record<AssetSymbol, MaeGuardrail> = {
   ES: { median: 12.50, p80: 25.50 },
   NQ: { median: 77.38, p80: 127.10 },
+  SPX: { median: 12.50, p80: 25.50 },
 };
 
 export function getSniperProfilesForSymbol(symbol: AssetSymbol): SniperProfile[] {
@@ -95,6 +109,6 @@ export function getSniperProfilesForSymbol(symbol: AssetSymbol): SniperProfile[]
 }
 
 export function getDefaultSniperProfile(symbol: AssetSymbol): SniperProfile {
-  if (symbol === 'ES') return SNIPER_PROFILES.ES_4pt;
+  if (symbol === 'ES' || symbol === 'SPX') return SNIPER_PROFILES.ES_4pt;
   return SNIPER_PROFILES.NQ_60pt;
 }
