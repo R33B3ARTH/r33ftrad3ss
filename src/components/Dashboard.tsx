@@ -1,3 +1,4 @@
+import { HybridSpxEsCard } from './HybridSpxEsCard';
 import { useEffect, useState } from 'react';
 import { marketData, startAllFeeds, applyManualPrices } from '@/lib/marketData';
 import type { Timeframe } from '@/lib/marketData';
