@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { marketData } from '../lib/marketData';
+import { generateHybridHeikinAshiCandles } from '../lib/hybridEngine';
 import type { PriceData, CandleData } from '../lib/types';
 
 export const HybridSpxEsCard: React.FC = () => {
@@ -10,7 +11,6 @@ export const HybridSpxEsCard: React.FC = () => {
   const [haHybridCandles, setHaHybridCandles] = useState<CandleData[]>([]);
 
   useEffect(() => {
-    // Start feeds for both instruments through our Cloudflare proxy
     marketData.start('ES');
     marketData.start('SPX');
 
@@ -27,71 +27,11 @@ export const HybridSpxEsCard: React.FC = () => {
     };
   }, []);
 
-  // Gap-Bridging & Heikin Ashi Calculation Engine
   useEffect(() => {
-    if (esCandles.length === 0) return;
-
-    let offset = 0;
-    if (spxCandles.length > 0) {
-      const lastSpx = spxCandles[spxCandles.length - 1];
-      const matchingEs = esCandles.find(c => Math.abs(c.time - lastSpx.time) < 120000);
-      if (matchingEs) {
-        offset = lastSpx.close - matchingEs.close;
-      }
+    if (esCandles.length > 0) {
+      const hybridHA = generateHybridHeikinAshiCandles(esCandles, spxCandles);
+      setHaHybridCandles(hybridHA);
     }
-
-    // Step 1: Impute overnight gaps using ES movement adjusted by cash offset
-    const rawHybrid: CandleData[] = esCandles.map(es => {
-      const spxMatch = spxCandles.find(s => Math.abs(s.time - es.time) < 60000);
-      if (spxMatch) {
-        return {
-          time: es.time,
-          open: spxMatch.open,
-          high: spxMatch.high,
-          low: spxMatch.low,
-          close: spxMatch.close,
-          volume: es.volume,
-        };
-      } else {
-        return {
-          time: es.time,
-          open: es.open + offset,
-          high: es.high + offset,
-          low: es.low + offset,
-          close: es.close + offset,
-          volume: es.volume,
-        };
-      }
-    });
-
-    // Step 2: Convert to Heikin Ashi
-    const haCandles: CandleData[] = [];
-    for (let i = 0; i < rawHybrid.length; i++) {
-      const current = rawHybrid[i];
-      const haClose = (current.open + current.high + current.low + current.close) / 4;
-      let haOpen: number;
-
-      if (i === 0) {
-        haOpen = (current.open + current.close) / 2;
-      } else {
-        const prevHa = haCandles[i - 1];
-        haOpen = (prevHa.open + prevHa.close) / 2;
-      }
-
-      const haHigh = Math.max(current.high, haOpen, haClose);
-      const haLow = Math.min(current.low, haOpen, haClose);
-
-      haCandles.push({
-        time: current.time,
-        open: Number(haOpen.toFixed(2)),
-        high: Number(haHigh.toFixed(2)),
-        low: Number(haLow.toFixed(2)),
-        close: Number(haClose.toFixed(2)),
-        volume: current.volume,
-      });
-    }
-
-    setHaHybridCandles(haCandles);
   }, [esCandles, spxCandles]);
 
   if (!esPrice || !spxPrice) {
@@ -128,7 +68,7 @@ export const HybridSpxEsCard: React.FC = () => {
 
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
-          <div className="text-xs text-slate-500 uppercase font-medium">ES Globex / Live</div>
+          <div className="text-xs text-slate-500 uppercase font-medium">ES Futures</div>
           <div className="text-emerald-400 font-mono text-sm mt-1">{esPrice.price.toFixed(2)}</div>
         </div>
         <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
