@@ -1,10 +1,10 @@
-import { HybridSpxEsCard } from './HybridSpxEsCard';
 import { useEffect, useState } from 'react';
 import { marketData, startAllFeeds, applyManualPrices } from '@/lib/marketData';
 import type { Timeframe } from '@/lib/marketData';
 import { ASSET_CONFIGS } from '@/lib/assets';
 import { calculateConfluence } from '@/lib/confluence';
 import { computeAutomatedDetection } from '@/lib/detectionEngine';
+import { generateHybridHeikinAshiCandles } from '@/lib/hybridEngine';
 import type {
   AssetSymbol,
   PriceData,
@@ -29,6 +29,7 @@ import StrategySimulator from '@/components/StrategySimulator';
 import TimeWindowAlarms from '@/components/TimeWindowAlarms';
 import AlertBanner from '@/components/AlertBanner';
 import SessionLiquidityWidget from '@/components/SessionLiquidityWidget';
+import { HybridSpxEsCard } from '@/components/HybridSpxEsCard';
 import { CandlestickChart, ClipboardList, Brain, Play } from 'lucide-react';
 
 interface DashboardProps {
@@ -94,7 +95,7 @@ export default function Dashboard({ preferences, updatePreferences }: DashboardP
   }, [price, candles, activeSymbol]);
 
   const threshold = preferences.confluence_threshold;
-  const config = ASSET_CONFIGS[activeSymbol];
+  const config = ASSET_CONFIGS[activeSymbol] || ASSET_CONFIGS['ES'];
 
   if (!price) {
     return (
@@ -137,6 +138,9 @@ export default function Dashboard({ preferences, updatePreferences }: DashboardP
       <div className="flex-1 p-3 max-w-[1600px] mx-auto w-full">
         {activeTab === 'chart' && (
           <div className="space-y-3">
+            {/* Hybrid SPX/ES Card placed right at the top of the chart view */}
+            <HybridSpxEsCard />
+
             <div className="bg-black border border-[#1a1a1a] rounded-xl p-3 h-[300px] sm:h-[400px] lg:h-[440px]">
               <PriceChart
                 candles={chartCandles}
