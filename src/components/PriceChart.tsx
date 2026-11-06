@@ -55,7 +55,7 @@ export default function PriceChart({
   );
 
   const atrValue = useMemo(() => calculateAtr(candles.slice(-50), 14), [candles]);
-  const activeSession = getActiveSession();
+  const _activeSession = getActiveSession();
 
   const { pdh, pdl, fibLevels } = useMemo(() => {
     const { pdh, pdl, range } = getGlobexSessionRange(candles, price, config.tickSize);
@@ -81,7 +81,7 @@ export default function PriceChart({
     canvas.style.height = `${height}px`;
     ctx.scale(dpr, dpr);
 
-    // Pure jet black background
+    // Pure jet black background (#000000)
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, height);
 
@@ -92,34 +92,20 @@ export default function PriceChart({
     const visibleCandles = candles.slice(-50);
     const allPrices: number[] = visibleCandles.flatMap((c) => [c.high, c.low]);
 
-    // Include all Fib levels in Y-axis range
-    for (const fib of fibLevels) {
-      allPrices.push(fib.price);
-    }
-
-    // Include session liquidity levels
-    if (sessionLiquidity.asia) { allPrices.push(sessionLiquidity.asia.high, sessionLiquidity.asia.low); }
-    if (sessionLiquidity.london) { allPrices.push(sessionLiquidity.london.high, sessionLiquidity.london.low); }
-    if (sessionLiquidity.ny) { allPrices.push(sessionLiquidity.ny.high, sessionLiquidity.ny.low); }
-
-    // Include ATR bands
-    if (atrValue > 0) {
-      allPrices.push(price.price + atrValue * 1.5, price.price - atrValue * 1.5);
-    }
-
-    // Include current price
+    // Include current price in range calculation
     allPrices.push(price.price);
 
     const minPrice = Math.min(...allPrices);
     const maxPrice = Math.max(...allPrices);
     const priceRange = maxPrice - minPrice || 1;
-    // Generous padding so labels never clip
-    const paddedMin = minPrice - priceRange * 0.12;
-    const paddedMax = maxPrice + priceRange * 0.12;
+    
+    // Tighter padding so candlesticks render larger and fill the frame properly
+    const paddedMin = minPrice - priceRange * 0.04;
+    const paddedMax = maxPrice + priceRange * 0.04;
     const paddedRange = paddedMax - paddedMin;
 
     const candleWidth = chartWidth / visibleCandles.length;
-    const bodyWidth = Math.max(candleWidth * 0.6, 2);
+    const bodyWidth = Math.max(candleWidth * 0.7, 3);
 
     const priceToY = (p: number) => padding.top + ((paddedMax - p) / paddedRange) * chartHeight;
 
@@ -138,7 +124,6 @@ export default function PriceChart({
       ctx.stroke();
 
       const p = paddedMax - (paddedRange / gridCount) * i;
-      // Right-aligned price badges on pure black right axis
       ctx.fillStyle = '#3a3a3c';
       ctx.textAlign = 'right';
       ctx.fillText(p.toFixed(precision), padding.left + chartWidth + padding.right - 4, y + 3);
@@ -156,16 +141,16 @@ export default function PriceChart({
       ctx.stroke();
     }
 
-    // Session liquidity lines — exact custom colors
+    // Session liquidity dotted lines: Asia (Yellow), London (Blue), NY (Orange)
     if (showSessions) {
       const drawSessionLine = (levelPrice: number, color: string, label: string) => {
         const y = priceToY(levelPrice);
         if (y < padding.top - 2 || y > padding.top + chartHeight + 2) return;
 
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.globalAlpha = 0.55;
-        ctx.setLineDash([6, 3]);
+        ctx.lineWidth = 1.2;
+        ctx.globalAlpha = 0.85;
+        ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(padding.left, y);
         ctx.lineTo(padding.left + chartWidth, y);
@@ -174,8 +159,8 @@ export default function PriceChart({
         ctx.globalAlpha = 1;
 
         ctx.fillStyle = color;
-        ctx.font = '8px monospace';
-        ctx.fillText(label, padding.left + 2, y - 2);
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText(label, padding.left + 2, y - 3);
         ctx.textAlign = 'right';
         ctx.fillText(levelPrice.toFixed(precision), padding.left + chartWidth + padding.right - 4, y + 3);
         ctx.textAlign = 'left';
@@ -223,7 +208,7 @@ export default function PriceChart({
       ctx.textAlign = 'left';
     }
 
-    // Fib level lines — neon overlays with all 7 levels
+    // Fib level lines
     if (showFibs && pdh > pdl) {
       for (const fib of fibLevels) {
         const y = priceToY(fib.price);
@@ -250,7 +235,7 @@ export default function PriceChart({
       }
     }
 
-    // Candles — ToS vibrant green/red
+    // Candles — ToS vibrant green/red with optimized body sizing
     visibleCandles.forEach((candle, i) => {
       const x = padding.left + i * candleWidth + candleWidth / 2;
       const openY = priceToY(candle.open);
@@ -260,10 +245,10 @@ export default function PriceChart({
 
       const isBull = candle.close >= candle.open;
       const color = isBull ? '#00c076' : '#ff3b30';
-      const wickColor = isBull ? 'rgba(0, 192, 118, 0.7)' : 'rgba(255, 59, 48, 0.7)';
+      const wickColor = isBull ? 'rgba(0, 192, 118, 0.75)' : 'rgba(255, 59, 48, 0.75)';
 
       ctx.strokeStyle = wickColor;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.moveTo(x, highY);
       ctx.lineTo(x, lowY);
@@ -271,7 +256,7 @@ export default function PriceChart({
 
       ctx.fillStyle = color;
       const bodyTop = Math.min(openY, closeY);
-      const bodyHeight = Math.max(Math.abs(closeY - openY), 1);
+      const bodyHeight = Math.max(Math.abs(closeY - openY), 1.5);
       ctx.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight);
     });
 
@@ -313,12 +298,11 @@ export default function PriceChart({
   }, [candles, symbol, precision, price, showFibs, showSessions, showAtr, timeframe, sessionLiquidity, atrValue, fibLevels, pdh, pdl]);
 
   return (
-    <div ref={containerRef} className="w-full h-full relative bg-black">
-      {/* Toolbar: two-row layout to prevent mobile overflow */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col gap-1 p-1.5 pointer-events-none">
-        {/* Row 1: Timeframe selectors — horizontal scroll */}
+    <div ref={containerRef} className="w-full h-full relative bg-[#000000]">
+      {/* Toolbar */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col gap-1 p-1.5 pointer-events-none bg-[#000000]">
         <div className="flex items-center gap-1 pointer-events-auto">
-          <div className="flex items-center gap-0.5 bg-black border border-[#1a1a1a] rounded-md p-0.5 overflow-x-auto whitespace-nowrap max-w-[60vw] sm:max-w-[400px] no-scrollbar">
+          <div className="flex items-center gap-0.5 bg-[#000000] border border-[#1a1a1a] rounded-md p-0.5 overflow-x-auto whitespace-nowrap max-w-[60vw] sm:max-w-[400px] no-scrollbar">
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf}
@@ -334,7 +318,6 @@ export default function PriceChart({
             ))}
           </div>
         </div>
-        {/* Row 2: Toggle badges — right-aligned, separate row */}
         <div className="flex items-center gap-1 pointer-events-auto justify-end">
           <button
             onClick={() => setShowSessions((s) => !s)}
@@ -369,7 +352,7 @@ export default function PriceChart({
         </div>
       </div>
 
-      <canvas ref={canvasRef} className="w-full h-full" />
+      <canvas ref={canvasRef} className="w-full h-full bg-[#000000]" />
     </div>
   );
 }
