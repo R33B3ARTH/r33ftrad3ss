@@ -17,27 +17,38 @@ export function classifyStratCandle(current: CandleData, prev: CandleData): '1-I
   return current.close >= current.open ? '2-Up' : '2-Down';
 }
 
+// Helper to evaluate strat state from a subset of candles representing a timeframe
+function getStratForCandles(candles: CandleData[]): '1-Inside' | '2-Up' | '2-Down' | '3-Outside' {
+  if (!candles || candles.length < 2) return '2-Down';
+  return classifyStratCandle(candles[candles.length - 1], candles[candles.length - 2]);
+}
+
 export function computeAutomatedDetection(
   _symbol: AssetSymbol,
   _price: PriceData,
   candles: CandleData[]
 ): AutomatedDetection {
-  // Build a realistic default HTF matrix structure using Strat classification
-  const defaultStrat = candles.length >= 2 
-    ? classifyStratCandle(candles[candles.length - 1], candles[candles.length - 2]) 
-    : '2-Down';
+  // Slice candles to simulate multi-timeframe perspective if full array is present
+  const len = candles.length;
+  const dailyCandles = candles;
+  const h4Candles = len > 4 ? candles.filter((_, i) => i % 4 === 0) : candles;
+  const h1Candles = len > 12 ? candles.filter((_, i) => i % 2 === 0) : candles;
+  const weeklyCandles = len > 20 ? candles.filter((_, i) => i % 5 === 0) : candles;
+  const monthlyCandles = len > 50 ? candles.filter((_, i) => i % 10 === 0) : candles;
 
   const htfMatrix: HtfMatrix = {
-    monthly: defaultStrat,
-    weekly: defaultStrat,
-    daily: defaultStrat,
-    '4-hour': defaultStrat,
-    '1-hour': defaultStrat,
+    monthly: getStratForCandles(monthlyCandles),
+    weekly: getStratForCandles(weeklyCandles),
+    daily: getStratForCandles(dailyCandles),
+    '4-hour': getStratForCandles(h4Candles),
+    '1-hour': getStratForCandles(h1Candles),
   };
+
+  const currentStrat = htfMatrix.daily;
 
   return {
     htfMatrix,
-    signal: defaultStrat.includes('Up') ? 'LONG' : defaultStrat.includes('Down') ? 'SHORT' : 'NEUTRAL',
+    signal: currentStrat.includes('Up') ? 'LONG' : currentStrat.includes('Down') ? 'SHORT' : 'NEUTRAL',
     confidence: 75,
     target: 20,
     stopLoss: 8,
