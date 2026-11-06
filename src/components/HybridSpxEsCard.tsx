@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { marketData } from '../lib/marketData';
-import { generateHybridHeikinAshiCandles } from '../lib/hybridEngine';
-import type { PriceData, CandleData } from '../lib/types';
+import { marketData } from '@/lib/marketData';
+import { generateHybridHeikinAshiCandles } from '@/lib/hybridEngine';
+import type { PriceData, CandleData } from '@/lib/types';
 
 export const HybridSpxEsCard: React.FC = () => {
   const [esPrice, setEsPrice] = useState<PriceData | null>(null);
