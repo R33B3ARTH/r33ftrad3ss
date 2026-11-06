@@ -1,87 +1,90 @@
 import type { CandleData } from './types';
-import { getNytMinutes, getNytMinutesFromTimestamp, isSameNytDay } from './nytTime';
 
 export interface SessionRange {
   high: number;
   low: number;
-  open: number;
-  candleCount: number;
 }
 
-export interface SessionLiquidity {
+export interface SessionLiquidityResult {
   asia: SessionRange | null;
   london: SessionRange | null;
   ny: SessionRange | null;
 }
 
 export const SESSION_COLORS = {
-  asia: { high: '#ffd700', low: '#ffd700', label: 'ASH/ASL' },
-  london: { high: '#0055ff', low: '#0055ff', label: 'LNH/LNL' },
-  ny: { high: '#ff5500', low: '#ff5500', label: 'NYH/NYL' },
-} as const;
+  asia: { high: '#3b82f6', low: '#3b82f6' },   // Blue
+  london: { high: '#eab308', low: '#eab308' }, // Yellow
+  ny: { high: '#ec4899', low: '#ec4899' },     // Pink
+};
 
-const ASIA_START = 18 * 60;
-const ASIA_END = 3 * 60;
-const LONDON_START = 3 * 60;
-const LONDON_END = 9 * 60 + 30;
-const NY_START = 9 * 60 + 30;
-const NY_END = 16 * 60 + 15;
-const SESSION_RESET = 18 * 60;
+export function getActiveSession(): 'asia' | 'london' | 'ny' | 'closed' {
+  const now = new Date();
+  // Convert to NY time representation or use UTC hour checks
+  const nyHours = Number(now.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }));
+  const nyMinutes = Number(now.toLocaleString('en-US', { timeZone: 'America/New_York', minute: 'numeric' }));
+  const timeVal = nyHours + nyMinutes / 60;
 
-export function getActiveSession(): 'asia' | 'london' | 'ny' | 'off' {
-  const m = getNytMinutes();
-  if (m >= ASIA_START || m < ASIA_END) return 'asia';
-  if (m >= LONDON_START && m < LONDON_END) return 'london';
-  if (m >= NY_START && m < NY_END) return 'ny';
-  return 'off';
+  // Asia: 18:00 - 03:00 NY (spanning midnight)
+  if (timeVal >= 18.0 || timeVal < 3.0) return 'asia';
+  // London: 03:00 - 09:30 NY
+  if (timeVal >= 3.0 && timeVal < 9.5) return 'london';
+  // NY RTH: 09:30 - 16:15 NY
+  if (timeVal >= 9.5 && timeVal < 16.25) return 'ny';
+
+  return 'closed';
 }
 
-function getAdjustedNytMinutes(timestamp: number): number {
-  const m = getNytMinutesFromTimestamp(timestamp);
-  return m < SESSION_RESET - 12 * 60 ? m + 24 * 60 : m;
-}
-
-export function calculateSessionLiquidity(candles: CandleData[]): SessionLiquidity {
-  if (candles.length === 0) {
+export function calculateSessionLiquidity(candles: CandleData[]): SessionLiquidityResult {
+  if (!candles || candles.length === 0) {
     return { asia: null, london: null, ny: null };
   }
 
-  const currentMinutes = getNytMinutes();
-  const currentSessionStart = currentMinutes >= SESSION_RESET
-    ? SESSION_RESET
-    : SESSION_RESET - 24 * 60;
+  // Get the latest candle date to isolate today's trading session
+  const latestCandle = candles[candles.length - 1];
+  const latestDate = new Date(latestCandle.time);
+  
+  // Filter candles belonging strictly to today / current session cycle (starting from Asia 18:00 previous day or current day)
+  const todaysCandles = candles.filter(c => {
+    const cDate = new Date(c.time);
+    // Ensure we are looking at candles within the last 24-30 hours max to prevent old historical bleeding
+    const diffHours = (latestDate.getTime() - cDate.getTime()) / (1000 * 60 * 60);
+    return diffHours >= 0 && diffHours <= 24;
+  });
 
   const asiaCandles: CandleData[] = [];
   const londonCandles: CandleData[] = [];
   const nyCandles: CandleData[] = [];
 
-  for (const c of candles) {
-    const adjustedMin = getAdjustedNytMinutes(c.time);
-    const rawMin = getNytMinutesFromTimestamp(c.time);
+  todaysCandles.forEach(c => {
+    const date = new Date(c.time);
+    const nyHour = Number(date.toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }));
+    const nyMin = Number(date.toLocaleString('en-US', { timeZone: 'America/New_York', minute: 'numeric' }));
+    const timeVal = nyHour + nyMin / 60;
 
-    if (adjustedMin < currentSessionStart && !isSameNytDay(c.time)) continue;
+    // Categorize precisely into session time windows
+    if (timeVal >= 18.0 || timeVal < 3.0) {
+      asiaCandles.push(c);
+    } else if (timeVal >= 3.0 && timeVal < 9.5) {
+      londonCandles.push(c);
+    } else if (timeVal >= 9.5 && timeVal <= 16.25) {
+      nyCandles.push(c);
+    }
+  });
 
-    const inAsia = adjustedMin >= ASIA_START || (rawMin >= 0 && rawMin < ASIA_END);
-    if (inAsia) { asiaCandles.push(c); continue; }
-
-    if (rawMin >= LONDON_START && rawMin < LONDON_END) { londonCandles.push(c); continue; }
-
-    if (rawMin >= NY_START && rawMin < NY_END) { nyCandles.push(c); continue; }
-  }
-
-  const buildRange = (cs: CandleData[]): SessionRange | null => {
-    if (cs.length === 0) return null;
-    return {
-      high: Math.max(...cs.map((c) => c.high)),
-      low: Math.min(...cs.map((c) => c.low)),
-      open: cs[0].open,
-      candleCount: cs.length,
-    };
+  const getRange = (arr: CandleData[]): SessionRange | null => {
+    if (arr.length === 0) return null;
+    let high = -Infinity;
+    let low = Infinity;
+    arr.forEach(c => {
+      if (c.high > high) high = c.high;
+      if (c.low < low) low = c.low;
+    });
+    return { high, low };
   };
 
   return {
-    asia: buildRange(asiaCandles),
-    london: buildRange(londonCandles),
-    ny: buildRange(nyCandles),
+    asia: getRange(asiaCandles),
+    london: getRange(londonCandles),
+    ny: getRange(nyCandles),
   };
 }
