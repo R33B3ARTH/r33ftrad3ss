@@ -1,4 +1,5 @@
-import type { AssetSymbol, PriceData, CandleData, AutomatedDetection, HtfMatrix } from './types';
+
+import type { AssetSymbol, PriceData, CandleData, AutomatedDetection, HtfStratMatrix, HtfCandleState } from './types';
 
 export function classifyStratCandle(current: CandleData, prev: CandleData): '1-Inside' | '2-Up' | '2-Down' | '3-Outside' {
   if (!prev) return '2-Down';
@@ -17,10 +18,12 @@ export function classifyStratCandle(current: CandleData, prev: CandleData): '1-I
   return current.close >= current.open ? '2-Up' : '2-Down';
 }
 
-// Helper to evaluate strat state from a subset of candles representing a timeframe
-function getStratForCandles(candles: CandleData[]): '1-Inside' | '2-Up' | '2-Down' | '3-Outside' {
-  if (!candles || candles.length < 2) return '2-Down';
-  return classifyStratCandle(candles[candles.length - 1], candles[candles.length - 2]);
+function getStratForCandles(candles: CandleData[]): HtfCandleState {
+  if (!candles || candles.length < 2) return '2D-Down';
+  const raw = classifyStratCandle(candles[candles.length - 1], candles[candles.length - 2]);
+  if (raw === '2-Up') return '2U-Up';
+  if (raw === '2-Down') return '2D-Down';
+  return raw as HtfCandleState;
 }
 
 export function computeAutomatedDetection(
@@ -28,7 +31,6 @@ export function computeAutomatedDetection(
   _price: PriceData,
   candles: CandleData[]
 ): AutomatedDetection {
-  // Slice candles to simulate multi-timeframe perspective if full array is present
   const len = candles.length;
   const dailyCandles = candles;
   const h4Candles = len > 4 ? candles.filter((_, i) => i % 4 === 0) : candles;
@@ -36,19 +38,32 @@ export function computeAutomatedDetection(
   const weeklyCandles = len > 20 ? candles.filter((_, i) => i % 5 === 0) : candles;
   const monthlyCandles = len > 50 ? candles.filter((_, i) => i % 10 === 0) : candles;
 
-  const htfMatrix: HtfMatrix = {
-    monthly: getStratForCandles(monthlyCandles),
-    weekly: getStratForCandles(weeklyCandles),
-    daily: getStratForCandles(dailyCandles),
-    '4-hour': getStratForCandles(h4Candles),
-    '1-hour': getStratForCandles(h1Candles),
+  const defaultState: HtfCandleState = '2D-Down';
+
+  const htfMatrix: HtfStratMatrix = {
+    monthly: getStratForCandles(monthlyCandles) || defaultState,
+    weekly: getStratForCandles(weeklyCandles) || defaultState,
+    daily: getStratForCandles(dailyCandles) || defaultState,
+    fourHour: getStratForCandles(h4Candles) || defaultState,
+    oneHour: getStratForCandles(h1Candles) || defaultState,
   };
 
   const currentStrat = htfMatrix.daily;
+  const isBullish = currentStrat.includes('Up');
 
   return {
     htfMatrix,
-    signal: currentStrat.includes('Up') ? 'LONG' : currentStrat.includes('Down') ? 'SHORT' : 'NEUTRAL',
+    ftcActive: false,
+    ftcAlignment: isBullish ? 'bullish' : 'bearish',
+    isBullish2d2u: isBullish,
+    isBearish2u2d: !isBullish,
+    fifteenMsState: defaultState,
+    stratPattern: isBullish ? '2D-2U Reversal' : '2U-2D Reversal',
+    ictArray: 'None',
+    ictDescription: '',
+    priceInFvg: false,
+    priceNearOb: false,
+    signal: isBullish ? 'LONG' : 'SHORT',
     confidence: 75,
     target: 20,
     stopLoss: 8,
